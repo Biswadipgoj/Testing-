@@ -35,7 +35,7 @@ function fmt(n: number) {
 
 async function exportCSV(supabase: ReturnType<typeof createClient>, type: string) {
   toast('Generating report...', { icon: '📊' });
-  let data: Record<string, unknown>[] = [];
+  let data: Record<string, any>[] = [];
   let filename = 'report.csv';
 
   if (type === 'customers') {
@@ -43,9 +43,9 @@ async function exportCSV(supabase: ReturnType<typeof createClient>, type: string
       .from('customers')
       .select('id,customer_name,father_name,mobile,imei,aadhaar,model_no,purchase_date,purchase_value,down_payment,emi_amount,emi_tenure,first_emi_charge_amount,first_emi_charge_paid_at,status,retailer:retailers(name)')
       .order('customer_name');
-    data = (rows || []).map((r: Record<string, unknown>) => ({
+    data = (rows || []).map((r: any) => ({
       ...r,
-      retailer_name: (r.retailer as { name?: string } | null)?.name || '',
+      retailer_name: r.retailer?.name || '',
       retailer: undefined,
     }));
     filename = 'customers.csv';
@@ -54,10 +54,10 @@ async function exportCSV(supabase: ReturnType<typeof createClient>, type: string
       .from('emi_schedule')
       .select('emi_no,due_date,amount,status,paid_at,mode,fine_amount,fine_waived,customer:customers(customer_name,imei)')
       .order('due_date');
-    data = (rows || []).map((r: Record<string, unknown>) => ({
+    data = (rows || []).map((r: any) => ({
       ...r,
-      customer_name: (r.customer as { customer_name?: string } | null)?.customer_name || '',
-      imei: (r.customer as { imei?: string } | null)?.imei || '',
+      customer_name: r.customer?.customer_name || '',
+      imei: r.customer?.imei || '',
       customer: undefined,
     }));
     filename = 'emi_schedule.csv';
@@ -71,16 +71,15 @@ async function exportCSV(supabase: ReturnType<typeof createClient>, type: string
       .lte('due_date', in30)
       .gte('due_date', today)
       .order('due_date');
-    data = (rows || []).map((r: Record<string, unknown>) => {
-      const cust = r.customer as Record<string, unknown> | null;
-      return {
-        emi_no: r.emi_no, due_date: r.due_date, amount: r.amount,
-        customer_name: cust?.customer_name || '',
-        imei: cust?.imei || '',
-        mobile: cust?.mobile || '',
-        retailer: (cust?.retailer as { name?: string } | null)?.name || '',
-      };
-    });
+    data = (rows || []).map((r: any) => ({
+      emi_no: r.emi_no, 
+      due_date: r.due_date, 
+      amount: r.amount,
+      customer_name: r.customer?.customer_name || '',
+      imei: r.customer?.imei || '',
+      mobile: r.customer?.mobile || '',
+      retailer: r.customer?.retailer?.name || '',
+    }));
     filename = 'upcoming_emis_30days.csv';
   } else if (type === 'fine_report') {
     const { data: rows } = await supabase
@@ -89,10 +88,15 @@ async function exportCSV(supabase: ReturnType<typeof createClient>, type: string
       .eq('status', 'UNPAID')
       .eq('fine_waived', false)
       .gt('fine_amount', 0);
-    data = (rows || []).map((r: Record<string, unknown>) => {
-      const cust = r.customer as Record<string, unknown> | null;
-      return { emi_no: r.emi_no, due_date: r.due_date, emi_amount: r.amount, fine_due: r.fine_amount, customer_name: cust?.customer_name || '', imei: cust?.imei || '', mobile: cust?.mobile || '' };
-    });
+    data = (rows || []).map((r: any) => ({
+      emi_no: r.emi_no, 
+      due_date: r.due_date, 
+      emi_amount: r.amount, 
+      fine_due: r.fine_amount, 
+      customer_name: r.customer?.customer_name || '', 
+      imei: r.customer?.imei || '', 
+      mobile: r.customer?.mobile || '' 
+    }));
     filename = 'fine_due_report.csv';
   } else if (type === 'retailer_report') {
     const { data: rows } = await supabase
@@ -100,11 +104,11 @@ async function exportCSV(supabase: ReturnType<typeof createClient>, type: string
       .select('created_at,total_amount,fine_amount,first_emi_charge_amount,mode,status,retailer:retailers(name),customer:customers(customer_name,imei)')
       .eq('status', 'APPROVED')
       .order('created_at', { ascending: false });
-    data = (rows || []).map((r: Record<string, unknown>) => ({
+    data = (rows || []).map((r: any) => ({
       date: r.created_at, total: r.total_amount, fine: r.fine_amount, first_charge: r.first_emi_charge_amount, mode: r.mode,
-      retailer: (r.retailer as { name?: string } | null)?.name || '',
-      customer: (r.customer as { customer_name?: string } | null)?.customer_name || '',
-      imei: (r.customer as { imei?: string } | null)?.imei || '',
+      retailer: r.retailer?.name || '',
+      customer: r.customer?.customer_name || '',
+      imei: r.customer?.imei || '',
     }));
     filename = 'retailer_collection_report.csv';
   }
@@ -143,61 +147,55 @@ export default function AdminDashboard() {
   const [fineSettings, setFineSettings] = useState({ default_fine_amount: 450 });
   const [pendingCount, setPendingCount] = useState(0);
 
-  // Broadcast message state
   const [broadcastRetailerId, setBroadcastRetailerId] = useState('');
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastExpiry, setBroadcastExpiry] = useState('');
   const [broadcastLoading, setBroadcastLoading] = useState(false);
-  const [broadcastHistory, setBroadcastHistory] = useState<{
-    id: string; message: string; expires_at: string; created_at: string;
-    retailer?: { name?: string };
-  }[]>([]);
+  const [broadcastHistory, setBroadcastHistory] = useState<any[]>([]);
 
-  // Filter state
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [filteredEmis, setFilteredEmis] = useState<FilteredEMI[] | null>(null);
   const [filterLoading, setFilterLoading] = useState(false);
-
-  // Stable refs so callbacks never capture stale closures
-  const supabaseRef = useRef(supabase);
-  supabaseRef.current = supabase;
-
-  // selectCustomerRef always points to latest selectCustomerFn
-  // so handleSearch (memoised with []) never calls a stale version
-  const selectCustomerRef = useRef<(c: Customer) => Promise<void>>(async () => {});
-
   const [searchLoading, setSearchLoading] = useState(false);
+
+  const loadPendingCount = useCallback(async () => {
+    const { count } = await supabase.from('payment_requests').select('*', { count: 'exact', head: true }).eq('status', 'PENDING');
+    setPendingCount(count || 0);
+  }, [supabase]);
+
+  const loadRetailers = useCallback(async () => {
+    const { data } = await supabase.from('retailers').select('*').order('name');
+    setRetailers(data || []);
+  }, [supabase]);
+
+  const loadFineSettings = useCallback(async () => {
+    const { data } = await supabase.from('fine_settings').select('*').eq('id', 1).single();
+    if (data) setFineSettings(data);
+  }, [supabase]);
+
+  const loadBroadcasts = useCallback(async () => {
+    const { data } = await supabase
+      .from('broadcast_messages')
+      .select('*, retailer:retailers(name)')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    setBroadcastHistory(data || []);
+  }, [supabase]);
 
   useEffect(() => {
     loadRetailers();
     loadFineSettings();
     loadPendingCount();
     loadBroadcasts();
-  }, []);
+  }, [loadRetailers, loadFineSettings, loadPendingCount, loadBroadcasts]);
 
-  async function loadPendingCount() {
-    const { count } = await supabase.from('payment_requests').select('*', { count: 'exact', head: true }).eq('status', 'PENDING');
-    setPendingCount(count || 0);
-  }
-
-  async function loadRetailers() {
-    const { data } = await supabase.from('retailers').select('*').order('name');
-    setRetailers(data || []);
-  }
-
-  async function loadFineSettings() {
-    const { data } = await supabase.from('fine_settings').select('*').eq('id', 1).single();
-    if (data) setFineSettings(data);
-  }
-
-  async function loadBroadcasts() {
-    const { data } = await supabase
-      .from('broadcast_messages')
-      .select('*, retailer:retailers(name)')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    setBroadcastHistory((data || []) as typeof broadcastHistory);
-  }
+  const selectCustomerFn = useCallback(async (customer: Customer) => {
+    setSelectedCustomer(customer);
+    const { data: emis } = await supabase.from('emi_schedule').select('*').eq('customer_id', customer.id).order('emi_no');
+    setCustomerEmis((emis as EMISchedule[]) || []);
+    const { data: bd } = await supabase.rpc('get_due_breakdown', { p_customer_id: customer.id });
+    setBreakdown(bd as DueBreakdown);
+  }, [supabase]);
 
   const handleSearch = useCallback(async (query: string) => {
     if (!query || query.length < 3) {
@@ -207,8 +205,7 @@ export default function AdminDashboard() {
     }
     setSearchLoading(true);
     try {
-      const sb = supabaseRef.current;
-      let qb = sb.from('customers').select('*, retailer:retailers(*)');
+      let qb = supabase.from('customers').select('*, retailer:retailers(*)');
       if (/^\d{15}$/.test(query)) qb = qb.eq('imei', query);
       else if (/^\d{12}$/.test(query)) qb = qb.eq('aadhaar', query);
       else qb = qb.ilike('customer_name', `%${query}%`);
@@ -217,24 +214,12 @@ export default function AdminDashboard() {
       if (error) { console.error('Search error:', error); return; }
       const results = (data as Customer[]) || [];
       setSearchResults(results);
-      if (results.length === 1) await selectCustomerRef.current(results[0]);
+      if (results.length === 1) await selectCustomerFn(results[0]);
       else setSelectedCustomer(null);
     } finally {
       setSearchLoading(false);
     }
-  }, []);
-
-  async function selectCustomerFn(customer: Customer) {
-    setSelectedCustomer(customer);
-    const sb = supabaseRef.current;
-    const { data: emis } = await sb.from('emi_schedule').select('*').eq('customer_id', customer.id).order('emi_no');
-    setCustomerEmis((emis as EMISchedule[]) || []);
-    const { data: bd } = await sb.rpc('get_due_breakdown', { p_customer_id: customer.id });
-    setBreakdown(bd as DueBreakdown);
-  }
-
-  // Always keep ref in sync with latest function
-  selectCustomerRef.current = selectCustomerFn;
+  }, [supabase, selectCustomerFn]);
 
   async function refreshSelectedCustomer() {
     if (selectedCustomer) await selectCustomerFn(selectedCustomer);
@@ -333,22 +318,19 @@ export default function AdminDashboard() {
       const { data, error } = await query.order('due_date').limit(100);
       if (error) { toast.error(error.message); return; }
 
-      const mapped: FilteredEMI[] = (data || []).map((row: Record<string, unknown>) => {
-        const cust = row.customer as Record<string, unknown> | null;
-        return {
-          id: row.id as string,
-          emi_no: row.emi_no as number,
-          due_date: row.due_date as string,
-          amount: row.amount as number,
-          status: row.status as string,
-          fine_amount: row.fine_amount as number || 0,
-          customer_name: (cust?.customer_name as string) || '',
-          imei: (cust?.imei as string) || '',
-          mobile: (cust?.mobile as string) || '',
-          retailer_name: ((cust?.retailer as { name?: string } | null)?.name) || '',
-          customer_id: (cust?.id as string) || '',
-        };
-      });
+      const mapped: FilteredEMI[] = (data || []).map((row: any) => ({
+        id: row.id,
+        emi_no: row.emi_no,
+        due_date: row.due_date,
+        amount: row.amount,
+        status: row.status,
+        fine_amount: row.fine_amount || 0,
+        customer_name: row.customer?.customer_name || '',
+        imei: row.customer?.imei || '',
+        mobile: row.customer?.mobile || '',
+        retailer_name: row.customer?.retailer?.name || '',
+        customer_id: row.customer?.id || '',
+      }));
       setFilteredEmis(mapped);
     } finally {
       setFilterLoading(false);
@@ -367,14 +349,13 @@ export default function AdminDashboard() {
       <NavBar role="admin" userName="TELEPOINT" pendingCount={pendingCount} />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Tab Navigation */}
         <div className="flex items-center gap-1 mb-8 bg-surface-2 rounded-2xl p-1.5 border border-surface-4 w-fit">
-          {([
+          {[
             { key: 'search', label: '🔍 Customer Search' },
             { key: 'retailers', label: '🏪 Retailers' },
             { key: 'reports', label: '📊 Reports & Settings' },
             { key: 'broadcast', label: '📢 Broadcast' },
-          ] as const).map((t) => (
+          ].map((t: any) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
@@ -387,7 +368,6 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* ===== SEARCH TAB ===== */}
         {tab === 'search' && (
           <div className="space-y-6 animate-fade-in">
             <div className="flex items-center justify-between">
@@ -438,7 +418,7 @@ export default function AdminDashboard() {
                         </td>
                         <td><span className="font-num text-xs">{c.imei}</span></td>
                         <td><span className="font-num">{c.mobile}</span></td>
-                        <td><span className="text-ink-muted">{(c.retailer as Retailer)?.name || '—'}</span></td>
+                        <td><span className="text-ink-muted">{(c.retailer as any)?.name || '—'}</span></td>
                         <td>
                           {c.status === 'RUNNING'
                             ? <span className="badge-running">Running</span>
@@ -459,7 +439,6 @@ export default function AdminDashboard() {
 
             {selectedCustomer && (
               <div className="space-y-5 animate-slide-up">
-                {/* Action bar */}
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   {searchResults && searchResults.length > 1 && (
                     <button onClick={() => setSelectedCustomer(null)} className="btn-ghost flex items-center gap-2">
@@ -499,7 +478,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ===== RETAILERS TAB ===== */}
         {tab === 'retailers' && (
           <div className="space-y-6 animate-fade-in">
             <div className="flex items-center justify-between">
@@ -555,7 +533,7 @@ export default function AdminDashboard() {
                     </tr>
                   ))}
                   {retailers.length === 0 && (
-                    <tr><td colSpan={5} className="text-center text-ink-muted py-10">No retailers yet. Add one to get started.</td></tr>
+                    <tr><td colSpan={6} className="text-center text-ink-muted py-10">No retailers yet.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -563,12 +541,10 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ===== REPORTS TAB ===== */}
         {tab === 'reports' && (
           <div className="space-y-6 animate-fade-in">
             <h1 className="font-display text-3xl font-bold text-ink">Reports & Settings</h1>
 
-            {/* Fine Settings */}
             <div className="card p-6">
               <p className="section-header">Fine Settings</p>
               <div className="flex items-end gap-4">
@@ -584,12 +560,8 @@ export default function AdminDashboard() {
                 </div>
                 <button onClick={updateFineSettings} className="btn-primary">Save</button>
               </div>
-              <p className="text-xs text-ink-muted mt-2">
-                Default ₹450. Applies when the next unpaid EMI is past due. Can be waived or overridden per-EMI in the customer view.
-              </p>
             </div>
 
-            {/* Export Reports */}
             <div className="card p-6">
               <p className="section-header">Export Reports (CSV)</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -614,56 +586,16 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Excel Exports */}
-            <div className="card p-6">
-              <p className="section-header">Download Customers (Excel)</p>
-              <p className="text-xs text-ink-muted mb-4">Server-generated .xlsx files — reliable on mobile and Vercel.</p>
-              <div className="flex flex-wrap gap-3">
-                <a
-                  href="/api/export?type=all"
-                  download="customers-all.xlsx"
-                  className="px-4 py-3 rounded-xl border border-brand-300 bg-brand-50 hover:bg-brand-100 text-brand-700 text-sm font-semibold transition-all flex items-center gap-2"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-                  </svg>
-                  📊 All Customers (2 Sheets)
-                </a>
-                <a
-                  href="/api/export?type=running"
-                  download="customers-running.xlsx"
-                  className="px-4 py-3 rounded-xl border border-success-border bg-success-light hover:opacity-90 text-success text-sm font-semibold transition-all flex items-center gap-2"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-                  </svg>
-                  ● Running Customers
-                </a>
-                <a
-                  href="/api/export?type=complete"
-                  download="customers-complete.xlsx"
-                  className="px-4 py-3 rounded-xl border border-info-border bg-info-light hover:opacity-90 text-info text-sm font-semibold transition-all flex items-center gap-2"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-                  </svg>
-                  ✓ Complete Customers
-                </a>
-              </div>
-            </div>
-
-            {/* EMI Filters */}
             <div className="card p-6">
               <div className="flex items-center justify-between mb-4">
                 <p className="section-header mb-0">EMI Due Filters</p>
                 {activeFilter && (
-                  <button onClick={clearFilter} className="text-xs text-ink-muted hover:text-ink underline underline-offset-4 transition-colors">
+                  <button onClick={clearFilter} className="text-xs text-ink-muted hover:text-ink underline">
                     Clear filter
                   </button>
                 )}
               </div>
 
-              {/* Upcoming due */}
               <p className="text-xs text-ink-muted mb-2 uppercase tracking-widest">Upcoming due date</p>
               <div className="flex flex-wrap gap-2 mb-5">
                 {[5, 10, 15, 20, 25, 30].map((d) => (
@@ -673,7 +605,7 @@ export default function AdminDashboard() {
                     className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
                       activeFilter === `upcoming_${d}`
                         ? 'bg-brand-500/20 border-brand-400 text-brand-600'
-                        : 'border-surface-4 text-ink-muted hover:text-ink'
+                        : 'border-surface-4 text-ink-muted'
                     }`}
                   >
                     Next {d} days
@@ -681,250 +613,84 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              {/* Overdue by months */}
-              <p className="text-xs text-ink-muted mb-2 uppercase tracking-widest">Overdue by months</p>
-              <div className="flex flex-wrap gap-2 mb-5">
-                {[2, 3, 4, 5].map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => loadFilter(`months_${m}`, undefined, m)}
-                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
-                      activeFilter === `months_${m}`
-                        ? 'bg-danger-light border-danger text-danger'
-                        : 'border-surface-4 text-ink-muted hover:text-ink'
-                    }`}
-                  >
-                    {m}+ months overdue
-                  </button>
-                ))}
-              </div>
-
-              {/* Fine only */}
-              <button
-                onClick={() => loadFilter('fine_only')}
-                className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
-                  activeFilter === 'fine_only'
-                    ? 'bg-danger-light border-danger text-danger'
-                    : 'border-surface-4 text-ink-muted hover:text-ink'
-                }`}
-              >
-                🔴 Fine Due Only
-              </button>
-
-              {/* Filter Results */}
-              {filterLoading && (
-                <div className="mt-6 flex items-center gap-3 text-ink-muted">
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
-                    <path fill="currentColor" className="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Loading filtered results...
-                </div>
-              )}
-
               {filteredEmis !== null && !filterLoading && (
                 <div className="mt-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm text-ink-muted">
-                      <span className="text-ink font-semibold">{filteredEmis.length}</span> EMIs found
-                    </p>
-                    {filteredEmis.length > 0 && (
-                      <button
-                        onClick={() => {
-                          const csv = [
-                            'customer_name,imei,mobile,retailer,emi_no,due_date,amount,fine_amount',
-                            ...filteredEmis.map(r =>
-                              [r.customer_name, r.imei, r.mobile, r.retailer_name, r.emi_no, r.due_date, r.amount, r.fine_amount].join(',')
-                            )
-                          ].join('\n');
-                          const blob = new Blob([csv], { type: 'text/csv' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a'); a.href = url; a.download = `filter_${activeFilter}.csv`; a.click();
-                        }}
-                        className="text-xs text-brand-600 hover:text-brand-600 underline underline-offset-4"
-                      >
-                        Export CSV
-                      </button>
-                    )}
+                  <div className="card overflow-hidden">
+                    <table className="data-table">
+                      <thead>
+                        <tr><th>Customer</th><th>IMEI</th><th>Mobile</th><th>Retailer</th><th>EMI #</th><th>Due Date</th><th>Amount</th></tr>
+                      </thead>
+                      <tbody>
+                        {filteredEmis.map((row) => (
+                          <tr key={row.id}>
+                            <td className="text-ink font-medium">{row.customer_name}</td>
+                            <td><span className="font-num text-xs">{row.imei}</span></td>
+                            <td><span className="font-num text-ink-muted">{row.mobile}</span></td>
+                            <td>{row.retailer_name}</td>
+                            <td>#{row.emi_no}</td>
+                            <td>{format(new Date(row.due_date), 'd MMM yyyy')}</td>
+                            <td>{fmt(row.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-
-                  {filteredEmis.length === 0 ? (
-                    <p className="text-ink-muted text-sm py-4">No EMIs match this filter.</p>
-                  ) : (
-                    <div className="card overflow-hidden">
-                      <table className="data-table">
-                        <thead>
-                          <tr><th>Customer</th><th>IMEI</th><th>Mobile</th><th>Retailer</th><th>EMI #</th><th>Due Date</th><th>Amount</th><th>Fine</th></tr>
-                        </thead>
-                        <tbody>
-                          {filteredEmis.map((row) => (
-                            <tr key={row.id}>
-                              <td className="text-ink font-medium">{row.customer_name}</td>
-                              <td><span className="font-num text-xs">{row.imei}</span></td>
-                              <td><span className="font-num text-ink-muted">{row.mobile}</span></td>
-                              <td className="text-ink-muted">{row.retailer_name}</td>
-                              <td><span className="font-num">#{row.emi_no}</span></td>
-                              <td>
-                                <span className={`font-num text-xs ${new Date(row.due_date) < new Date() ? 'text-danger font-semibold' : 'text-ink-muted'}`}>
-                                  {format(new Date(row.due_date), 'd MMM yyyy')}
-                                </span>
-                              </td>
-                              <td><span className="font-num">{fmt(row.amount)}</span></td>
-                              <td>
-                                {row.fine_amount > 0
-                                  ? <span className="font-num text-danger text-xs font-semibold">{fmt(row.fine_amount)}</span>
-                                  : <span className="text-ink-muted text-xs">—</span>}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
           </div>
         )}
-        {/* ===== BROADCAST TAB ===== */}
+
         {tab === 'broadcast' && (
           <div className="space-y-6 animate-fade-in">
-            <div>
-              <h1 className="font-display text-3xl font-bold text-ink">Broadcast Message</h1>
-              <p className="text-ink-muted text-sm mt-1">Send popup messages to all customers under a retailer.</p>
-            </div>
-
-            <div className="card p-6">
-              <p className="section-header">Send New Broadcast</p>
-              <div className="space-y-4">
-                <div>
-                  <label className="form-label">Select Retailer <span className="text-brand-600">*</span></label>
-                  <select
-                    value={broadcastRetailerId}
-                    onChange={(e) => setBroadcastRetailerId(e.target.value)}
-                    className="form-input"
-                  >
-                    <option value="">— Select retailer —</option>
-                    {retailers.map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="form-label">Message <span className="text-brand-600">*</span></label>
-                  <textarea
-                    value={broadcastMessage}
-                    onChange={(e) => setBroadcastMessage(e.target.value)}
-                    rows={3}
-                    placeholder="Type your message for customers..."
-                    className="form-input resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="form-label">Expiry Date <span className="text-brand-600">*</span></label>
-                  <input
-                    type="date"
-                    value={broadcastExpiry}
-                    onChange={(e) => setBroadcastExpiry(e.target.value)}
-                    className="form-input"
-                    min={new Date().toISOString().split('T')[0]}
-                  />
-                  <p className="text-xs text-ink-muted mt-1">Popup will stop appearing after this date.</p>
-                </div>
-                <button
-                  onClick={async () => {
-                    if (!broadcastRetailerId || !broadcastMessage.trim() || !broadcastExpiry) {
-                      toast.error('Please fill all fields');
-                      return;
-                    }
-                    setBroadcastLoading(true);
-                    try {
-                      const res = await fetch('/api/broadcast', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          target_retailer_id: broadcastRetailerId,
-                          message: broadcastMessage.trim(),
-                          expires_at: broadcastExpiry + 'T23:59:59Z',
-                        }),
-                      });
-                      const data = await res.json();
-                      if (res.ok) {
-                        toast.success('Broadcast sent!');
-                        setBroadcastMessage('');
-                        setBroadcastExpiry('');
-                        setBroadcastRetailerId('');
-                        loadBroadcasts();
-                      } else {
-                        toast.error(data.error || 'Failed to send broadcast');
-                      }
-                    } finally {
-                      setBroadcastLoading(false);
-                    }
-                  }}
-                  disabled={broadcastLoading}
-                  className="btn-primary"
-                >
-                  {broadcastLoading ? 'Sending…' : '📢 Send Broadcast'}
-                </button>
-              </div>
-            </div>
-
-            {/* Broadcast History */}
-            <div className="card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <p className="section-header mb-0">Broadcast History</p>
-                <button onClick={loadBroadcasts} className="text-xs text-brand-600 underline underline-offset-4">
-                  Refresh
-                </button>
-              </div>
-              {broadcastHistory.length === 0 ? (
-                <p className="text-ink-muted text-sm py-4">No broadcasts sent yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {broadcastHistory.map((b) => {
-                    const expired = new Date(b.expires_at) < new Date();
-                    return (
-                      <div key={b.id} className={`p-4 rounded-xl border ${expired ? 'border-surface-4 opacity-60' : 'border-brand-300 bg-brand-50'}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <p className="text-ink text-sm font-medium">{b.message}</p>
-                            <div className="flex flex-wrap gap-3 mt-2 text-xs text-ink-muted">
-                              <span>📍 {b.retailer?.name || '—'}</span>
-                              <span>📅 Sent: {format(new Date(b.created_at), 'd MMM yyyy')}</span>
-                              <span>⏰ Expires: {format(new Date(b.expires_at), 'd MMM yyyy')}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {expired
-                              ? <span className="text-xs text-ink-muted bg-surface-3 px-2 py-0.5 rounded-full">Expired</span>
-                              : <span className="text-xs text-success bg-success-light px-2 py-0.5 rounded-full font-semibold">Active</span>
-                            }
-                            <button
-                              onClick={async () => {
-                                if (!confirm('Delete this broadcast?')) return;
-                                const res = await fetch(`/api/broadcast?id=${b.id}`, { method: 'DELETE' });
-                                if (res.ok) { toast.success('Deleted'); loadBroadcasts(); }
-                                else toast.error('Failed to delete');
-                              }}
-                              className="text-xs text-danger hover:text-danger border border-danger-border px-2 py-0.5 rounded-lg"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <h1 className="font-display text-3xl font-bold text-ink">Broadcast Message</h1>
+            <div className="card p-6 space-y-4">
+              <select
+                value={broadcastRetailerId}
+                onChange={(e) => setBroadcastRetailerId(e.target.value)}
+                className="form-input"
+              >
+                <option value="">— Select retailer —</option>
+                {retailers.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <textarea
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                rows={3}
+                placeholder="Message for customers..."
+                className="form-input"
+              />
+              <input
+                type="date"
+                value={broadcastExpiry}
+                onChange={(e) => setBroadcastExpiry(e.target.value)}
+                className="form-input"
+              />
+              <button
+                onClick={async () => {
+                  if (!broadcastRetailerId || !broadcastMessage.trim() || !broadcastExpiry) return;
+                  setBroadcastLoading(true);
+                  const res = await fetch('/api/broadcast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      target_retailer_id: broadcastRetailerId,
+                      message: broadcastMessage.trim(),
+                      expires_at: broadcastExpiry + 'T23:59:59Z',
+                    }),
+                  });
+                  if (res.ok) { toast.success('Sent!'); setBroadcastMessage(''); loadBroadcasts(); }
+                  setBroadcastLoading(false);
+                }}
+                disabled={broadcastLoading}
+                className="btn-primary"
+              >
+                {broadcastLoading ? 'Sending…' : '📢 Send Broadcast'}
+              </button>
             </div>
           </div>
         )}
-
       </div>
-
-      {/* ===== MODALS ===== */}
 
       {showCustomerForm && (
         <CustomerFormModal
@@ -949,24 +715,18 @@ export default function AdminDashboard() {
 
       {showCompleteModal && (
         <div className="modal-backdrop">
-          <div className="card w-full max-w-md p-6 animate-slide-up">
-            <h3 className="font-display text-xl font-bold text-ink mb-2">Mark as COMPLETE</h3>
-            <p className="text-sm text-ink-muted mb-5">
-              Once complete, the retailer cannot collect further payments. Remark is mandatory.
-            </p>
-            <div className="mb-4">
-              <label className="form-label">Completion Remark <span className="text-brand-600">*</span></label>
-              <textarea
-                value={completeRemark}
-                onChange={(e) => setCompleteRemark(e.target.value)}
-                rows={3}
-                placeholder="e.g. All EMIs cleared, NOC issued"
-                className="form-input resize-none"
-              />
-            </div>
+          <div className="card w-full max-w-md p-6">
+            <h3 className="font-display text-xl font-bold mb-5">Mark as COMPLETE</h3>
+            <textarea
+              value={completeRemark}
+              onChange={(e) => setCompleteRemark(e.target.value)}
+              rows={3}
+              placeholder="Completion remark..."
+              className="form-input mb-4"
+            />
             <div className="flex gap-3">
               <button onClick={() => setShowCompleteModal(false)} className="btn-ghost flex-1">Cancel</button>
-              <button onClick={handleMarkComplete} className="btn-success flex-1">Confirm Complete</button>
+              <button onClick={handleMarkComplete} className="btn-success flex-1">Confirm</button>
             </div>
           </div>
         </div>
@@ -974,23 +734,17 @@ export default function AdminDashboard() {
 
       {showDeleteConfirm && (
         <div className="modal-backdrop">
-          <div className="card w-full max-w-md p-6 animate-slide-up">
-            <h3 className="font-display text-xl font-bold text-danger mb-2">⚠ Delete Customer</h3>
-            <p className="text-sm text-ink-muted mb-5">
-              This permanently deletes the customer, all EMI records, and payment history. This cannot be undone.
-            </p>
-            <div className="mb-4">
-              <label className="form-label">Reason for Deletion <span className="text-brand-600">*</span></label>
-              <input
-                value={deleteRemark}
-                onChange={(e) => setDeleteRemark(e.target.value)}
-                placeholder="State the reason..."
-                className="form-input"
-              />
-            </div>
+          <div className="card w-full max-w-md p-6">
+            <h3 className="font-display text-xl font-bold text-danger mb-5">Delete Customer</h3>
+            <input
+              value={deleteRemark}
+              onChange={(e) => setDeleteRemark(e.target.value)}
+              placeholder="Reason..."
+              className="form-input mb-4"
+            />
             <div className="flex gap-3">
               <button onClick={() => setShowDeleteConfirm(false)} className="btn-ghost flex-1">Cancel</button>
-              <button onClick={handleDeleteCustomer} className="btn-danger flex-1">Confirm Delete</button>
+              <button onClick={handleDeleteCustomer} className="btn-danger flex-1">Delete</button>
             </div>
           </div>
         </div>
@@ -998,84 +752,46 @@ export default function AdminDashboard() {
 
       {showRetailerForm && (
         <div className="modal-backdrop">
-          <div className="card w-full max-w-md p-6 animate-slide-up">
-            <h3 className="font-display text-xl font-bold text-ink mb-5">
-              {editingRetailer ? 'Edit Retailer' : 'Add New Retailer'}
+          <div className="card w-full max-w-md p-6">
+            <h3 className="font-display text-xl font-bold mb-5">
+              {editingRetailer ? 'Edit Retailer' : 'Add Retailer'}
             </h3>
             <form onSubmit={handleRetailerSubmit} className="space-y-4">
-              <div>
-                <label className="form-label">Display Name <span className="text-brand-600">*</span></label>
-                <input
-                  value={retailerForm.name}
-                  onChange={(e) => setRetailerForm((f) => ({ ...f, name: e.target.value }))}
-                  required
-                  placeholder="e.g. Singh Mobiles"
-                  className="form-input"
-                />
-              </div>
+              <input
+                value={retailerForm.name}
+                onChange={(e) => setRetailerForm(f => ({ ...f, name: e.target.value }))}
+                required
+                placeholder="Name"
+                className="form-input"
+              />
               {!editingRetailer && (
-                <div>
-                  <label className="form-label">Username <span className="text-brand-600">*</span></label>
-                  <input
-                    value={retailerForm.username}
-                    onChange={(e) => setRetailerForm((f) => ({ ...f, username: e.target.value.toLowerCase().replace(/\s/g, '') }))}
-                    required
-                    placeholder="lowercase, no spaces"
-                    className="form-input"
-                  />
-                  <p className="text-xs text-ink-muted mt-1">Login email will be: {retailerForm.username || 'username'}@retailer.local</p>
-                </div>
+                <input
+                  value={retailerForm.username}
+                  onChange={(e) => setRetailerForm(f => ({ ...f, username: e.target.value.toLowerCase() }))}
+                  required
+                  placeholder="Username"
+                  className="form-input"
+                />
               )}
-              <div>
-                <label className="form-label">
-                  {editingRetailer ? 'New Password (leave blank to keep current)' : 'Password'} {!editingRetailer && <span className="text-brand-600">*</span>}
-                </label>
-                <input
-                  type="password"
-                  value={retailerForm.password}
-                  onChange={(e) => setRetailerForm((f) => ({ ...f, password: e.target.value }))}
-                  required={!editingRetailer}
-                  placeholder="••••••••"
-                  className="form-input"
-                />
-                {!editingRetailer && (
-                  <p className="text-xs text-ink-muted mt-1">Used to log in to the retailer dashboard.</p>
-                )}
-              </div>
-              <div>
-                <label className="form-label">
-                  Retail PIN <span className="text-brand-600">{!editingRetailer ? '*' : '(update)'}</span>
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={retailerForm.retail_pin}
-                  onChange={(e) => setRetailerForm((f) => ({ ...f, retail_pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
-                  required={!editingRetailer}
-                  placeholder="4–6 digit PIN"
-                  className="form-input"
-                  maxLength={6}
-                />
-                <p className="text-xs text-ink-muted mt-1">
-                  Separate from login password. Required every time retailer submits a payment.
-                </p>
-              </div>
-              <div>
-                <label className="form-label">Mobile Number (optional)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={retailerForm.mobile}
-                  onChange={(e) => setRetailerForm((f) => ({ ...f, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
-                  placeholder="10-digit mobile"
-                  className="form-input"
-                  maxLength={10}
-                />
-                <p className="text-xs text-ink-muted mt-1">Shown on receipts and customer details.</p>
-              </div>
-              <div className="flex gap-3 pt-2">
+              <input
+                type="password"
+                value={retailerForm.password}
+                onChange={(e) => setRetailerForm(f => ({ ...f, password: e.target.value }))}
+                required={!editingRetailer}
+                placeholder="Password"
+                className="form-input"
+              />
+              <input
+                type="text"
+                value={retailerForm.retail_pin}
+                onChange={(e) => setRetailerForm(f => ({ ...f, retail_pin: e.target.value.replace(/\D/g, '') }))}
+                required={!editingRetailer}
+                placeholder="PIN"
+                className="form-input"
+              />
+              <div className="flex gap-3">
                 <button type="button" onClick={() => setShowRetailerForm(false)} className="btn-ghost flex-1">Cancel</button>
-                <button type="submit" className="btn-primary flex-1">{editingRetailer ? 'Update Retailer' : 'Create Retailer'}</button>
+                <button type="submit" className="btn-primary flex-1">Save</button>
               </div>
             </form>
           </div>
